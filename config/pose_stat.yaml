@@ -1,0 +1,3 @@
+pose_stat:
+  rate: 60
+  output_folder: '~/Desktop/bobi_logs'

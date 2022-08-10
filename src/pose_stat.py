@@ -16,6 +16,8 @@ class PoseStat:
         self._ro_sub = rospy.Subscriber(
             'robot_poses', PoseVec, self._unfiltered_poses_cb)
 
+        self._rate = rospy.get_param("top_camera/fps", 60)
+
         self._of = rospy.get_param('pose_stat/output_folder', '.')
         if '~' in self._of:
             home = os.path.expanduser('~')
@@ -41,8 +43,12 @@ class PoseStat:
     def _filtered_poses_cb(self, msg):
         data = msg.poses
         if self._prev_filtered_poses is not None and len(data):
-            self._time[0] += (data[0].header.stamp -
-                              self._prev_filtered_poses[0].header.stamp).to_sec()
+            time = (data[0].header.stamp -
+                    self._prev_unfiltered_poses[0].header.stamp).to_sec()
+            if time >= 0:
+                self._time[0] += time
+            else:
+                self._time[0] += 1 / self._rate
 
         self._fp_file.write('{:.3f}'.format(self._time[0]))
         for p in data:
@@ -56,8 +62,12 @@ class PoseStat:
     def _unfiltered_poses_cb(self, msg):
         data = msg.poses
         if self._prev_unfiltered_poses is not None and len(data):
-            self._time[1] += (data[0].header.stamp -
-                              self._prev_unfiltered_poses[0].header.stamp).to_sec()
+            time = (data[0].header.stamp -
+                    self._prev_unfiltered_poses[0].header.stamp).to_sec()
+            if time >= 0:
+                self._time[1] += time
+            else:
+                self._time[1] += 1 / self._rate
 
         self._up_file.write('{:.3f}'.format(self._time[1]))
         for p in data:
@@ -71,8 +81,12 @@ class PoseStat:
     def _robot_poses_cb(self, msg):
         data = msg.poses
         if self._prev_robot_poses is not None and len(data):
-            self._time[2] += (data[0].header.stamp -
-                              self._prev_robot_poses[0].header.stamp).to_sec()
+            time = (data[0].header.stamp -
+                    self._prev_unfiltered_poses[0].header.stamp).to_sec()
+            if time >= 0:
+                self._time[2] += time
+            else:
+                self._time[2] += 1 / self._rate
 
         self._ro_file.write('{:.3f}'.format(self._time[2]))
         for p in data:

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(bobi_loggers)
+project(bobi_stats)
 
 add_compile_options(-std=c++17)
 

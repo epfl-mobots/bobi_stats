@@ -2,9 +2,9 @@
 
     <arg name="ns" default="/" />
     <group ns="$(arg ns)">
-        <rosparam command="load" file="$(find bobi_loggers)/config/pose_stat.yaml" />
+        <rosparam command="load" file="$(find bobi_stats)/config/pose_stat.yaml" />
 
-        <node name="pose_stat" pkg="bobi_loggers" type="pose_stat.py" output="screen" cwd="node"/>
+        <node name="pose_stat" pkg="bobi_stats" type="pose_stat.py" output="screen" cwd="node"/>
     </group>
 
 </launch>

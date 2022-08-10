@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>bobi_loggers</name>
+  <name>bobi_stats</name>
   <version>0.1.0</version>
 
-  <description>The bobi_loggers package contains scripts/code to log quantities</description>
+  <description>The bobi_stats package contains scripts/code to log quantities</description>
   <maintainer email="b.papaspyros@gmail.com">Vaios Papaspyros</maintainer>
   <license>BSD</license>
 

@@ -80,13 +80,16 @@ class PoseStat:
 
     def _robot_poses_cb(self, msg):
         data = msg.poses
-        if self._prev_robot_poses is not None and len(data):
+        if self._prev_robot_poses is not None:
             time = (data[0].header.stamp -
                     self._prev_unfiltered_poses[0].header.stamp).to_sec()
             if time >= 0:
                 self._time[2] += time
             else:
                 self._time[2] += 1 / self._rate
+
+        if (len(data) == 0):
+            return
 
         self._ro_file.write('{:.3f}'.format(self._time[2]))
         for p in data:

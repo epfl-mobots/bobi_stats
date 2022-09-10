@@ -4,11 +4,15 @@ import geometry_msgs
 from bobi_msgs.msg import PoseVec, PoseStamped, KickSpecs
 from bobi_msgs.srv import ConvertCoordinates
 from copy import deepcopy
+from config.global_params import NUM_AGENTS, NUM_ROBOTS, NUM_VIRTU_AGENTS
 
 import os
 import socket
 from datetime import datetime
 import numpy as np
+
+NOT_FOUND = 9999999
+START_TIME = None
 
 
 class PoseStat:
@@ -17,6 +21,9 @@ class PoseStat:
         rospy.wait_for_service('/convert_top2bottom')
 
         self._rate = rospy.get_param("top_camera/fps", 60)
+        self._num_agents = NUM_AGENTS
+        self._num_robots = NUM_ROBOTS
+        self._num_virtu_agents = NUM_VIRTU_AGENTS
 
         self._of = rospy.get_param('logger/output_folder', '.')
         if '~' in self._of:
@@ -57,6 +64,11 @@ class PoseStat:
         self._ks_sub = rospy.Subscriber(
             'kick_specs', KickSpecs, self._kick_specs_cb)
 
+        self._fp_init = False
+        self._up_init = False
+        self._ro_init = False
+        self._ks_init = False
+
     def __del__(self):
         self._fp_top_file.close()
         self._fp_bot_file.close()
@@ -71,6 +83,7 @@ class PoseStat:
         pass
 
     def _filtered_poses_cb(self, msg):
+        global START_TIME, NOT_FOUND
         data = msg.poses
 
         conv_data = []
@@ -90,30 +103,51 @@ class PoseStat:
 
         nsecs = rospy.Time.now().nsecs
         secs = rospy.Time.now().secs
-
-        self._fp_top_file.write('{} {}'.format(secs, nsecs))
-        if (len(data) == 0):
-            self._fp_top_file.write(' {} {} {} {}'.format(
-                np.nan, np.nan, np.nan, np.nan))
+        t = secs + (nsecs / 10e9)
+        if START_TIME is None:
+            START_TIME = t
+            t = 0
         else:
-            for p in data:
-                self._fp_top_file.write(' {:.4f} {:.4f} {:.4f} {}'.format(
-                    p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, p.pose.is_filtered))
+            t -= START_TIME
+
+        if not self._fp_init:
+            self._fp_top_file.write('t ')
+            self._fp_bot_file.write('t ')
+            for _ in range(self._num_agents + self._num_virtu_agents):
+                self._fp_top_file.write('x y yaw is_filtered is_swapped ')
+                self._fp_bot_file.write('x y yaw is_filtered is_swapped ')
+            self._fp_top_file.write('\n')
+            self._fp_bot_file.write('\n')
+            self._fp_init = True
+
+        self._fp_top_file.write('{:5f}'.format(t))
+
+        for p in data:
+            self._fp_top_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+                p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
+        if len(data) < self._num_agents + self._num_virtu_agents:
+            for _ in range(self._num_agents + self._num_virtu_agents - len(data)):
+                self._fp_top_file.write(' {} {} {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
+
         self._fp_top_file.write('\n')
         self._fp_top_file.flush()
 
-        self._fp_bot_file.write('{} {}'.format(secs, nsecs))
-        if (len(conv_data) == 0):
-            self._fp_bot_file.write(' {} {} {} {}'.format(
-                np.nan, np.nan, np.nan, np.nan))
-        else:
-            for p in conv_data:
-                self._fp_bot_file.write(' {:.4f} {:.4f} {:.4f} {}'.format(
-                    p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, p.pose.is_filtered))
+        self._fp_bot_file.write('{:5f}'.format(t))
+
+        for p in conv_data:
+            self._fp_bot_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+                p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
+        if len(conv_data) < self._num_agents + self._num_virtu_agents:
+            for _ in range(self._num_agents + self._num_virtu_agents - len(conv_data)):
+                self._fp_bot_file.write(' {} {} {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
+
         self._fp_bot_file.write('\n')
         self._fp_bot_file.flush()
 
     def _unfiltered_poses_cb(self, msg):
+        global START_TIME, NOT_FOUND
         data = msg.poses
 
         conv_data = []
@@ -133,30 +167,48 @@ class PoseStat:
 
         nsecs = rospy.Time.now().nsecs
         secs = rospy.Time.now().secs
-
-        self._up_top_file.write('{} {}'.format(secs, nsecs))
-        if (len(data) == 0):
-            self._up_top_file.write(' {} {} {} {}'.format(
-                np.nan, np.nan, np.nan, np.nan))
+        t = secs + (nsecs / 10e9)
+        if START_TIME is None:
+            START_TIME = t
+            t = 0
         else:
-            for p in data:
-                self._up_top_file.write(' {:.4f} {:.4f} {:.4f} {}'.format(
-                    p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, p.pose.is_filtered))
+            t -= START_TIME
+
+        if not self._up_init:
+            self._up_top_file.write('t ')
+            self._up_bot_file.write('t ')
+            for _ in range(self._num_agents + self._num_virtu_agents):
+                self._up_top_file.write('x y yaw is_filtered is_swapped ')
+                self._up_bot_file.write('x y yaw is_filtered is_swapped ')
+            self._up_top_file.write('\n')
+            self._up_bot_file.write('\n')
+            self._up_init = True
+
+        self._up_top_file.write('{:5f}'.format(t))
+        for p in data:
+            self._up_top_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+                p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
+        if len(data) < self._num_agents + self._num_virtu_agents:
+            for _ in range(self._num_agents + self._num_virtu_agents - len(data)):
+                self._up_top_file.write(' {} {} {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
+
         self._up_top_file.write('\n')
         self._up_top_file.flush()
 
-        self._up_bot_file.write('{} {}'.format(secs, nsecs))
-        if (len(conv_data) == 0):
-            self._up_bot_file.write(' {} {} {} {}'.format(
-                np.nan, np.nan, np.nan, np.nan))
-        else:
-            for p in conv_data:
-                self._up_bot_file.write(' {:.4f} {:.4f} {:.4f} {}'.format(
-                    p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, p.pose.is_filtered))
+        self._up_bot_file.write('{:5f}'.format(t))
+        for p in conv_data:
+            self._up_bot_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+                p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
+        if len(conv_data) < self._num_agents + self._num_virtu_agents:
+            for _ in range(self._num_agents + self._num_virtu_agents - len(conv_data)):
+                self._up_bot_file.write(' {} {} {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
         self._up_bot_file.write('\n')
         self._up_bot_file.flush()
 
     def _robot_poses_cb(self, msg):
+        global START_TIME, NOT_FOUND
         data = msg.poses
 
         conv_data = []
@@ -176,50 +228,127 @@ class PoseStat:
 
         nsecs = rospy.Time.now().nsecs
         secs = rospy.Time.now().secs
-
-        self._ro_bot_file.write('{} {}'.format(secs, nsecs))
-        if (len(data) == 0):
-            self._ro_bot_file.write(' {} {} {} {}'.format(
-                np.nan, np.nan, np.nan, np.nan))
+        t = secs + (nsecs / 10e9)
+        if START_TIME is None:
+            START_TIME = t
+            t = 0
         else:
-            for p in data:
-                self._ro_bot_file.write(' {:.4f} {:.4f} {:.4f} {}'.format(
-                    p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, p.pose.is_filtered))
+            t -= START_TIME
+
+        if not self._ro_init:
+            self._ro_bot_file.write('t ')
+            self._ro_top_file.write('t ')
+            for _ in range(self._num_agents + self._num_virtu_agents):
+                self._ro_bot_file.write('x y yaw is_filtered is_swapped ')
+                self._ro_top_file.write('x y yaw is_filtered is_swapped ')
+            self._ro_bot_file.write('\n')
+            self._ro_top_file.write('\n')
+            self._ro_init = True
+
+        self._ro_bot_file.write('{:5f}'.format(t))
+        for p in data:
+            self._ro_bot_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+                p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
+        if len(data) < self._num_agents + self._num_virtu_agents:
+            for _ in range(self._num_agents + self._num_virtu_agents - len(data)):
+                self._ro_bot_file.write(' {} {} {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
+
         self._ro_bot_file.write('\n')
         self._ro_bot_file.flush()
 
-        self._ro_top_file.write('{} {}'.format(secs, nsecs))
-        if (len(conv_data) == 0):
-            self._ro_top_file.write(' {} {} {} {}'.format(
-                np.nan, np.nan, np.nan, np.nan))
-        else:
-            for p in conv_data:
-                self._ro_top_file.write(' {:.4f} {:.4f} {:.4f} {}'.format(
-                    p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, p.pose.is_filtered))
+        self._ro_top_file.write('{:5f}'.format(t))
+        for p in conv_data:
+            self._ro_top_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+                p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
+        if len(conv_data) < self._num_agents + self._num_virtu_agents:
+            for _ in range(self._num_agents + self._num_virtu_agents - len(conv_data)):
+                self._ro_top_file.write(' {} {} {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
+
         self._ro_top_file.write('\n')
         self._ro_top_file.flush()
 
     def _kick_specs_cb(self, msg):
+        global START_TIME, NOT_FOUND
 
-        point = geometry_msgs.msg.Point(np.nan, np.nan, 0.)
+        point = geometry_msgs.msg.Point(NOT_FOUND, NOT_FOUND, 0.)
+        cagent = PoseStamped()
+        cneighs = PoseVec()
         try:
             convSrv = rospy.ServiceProxy(
                 '/convert_bottom2top', ConvertCoordinates)
             point = geometry_msgs.msg.Point(msg.target_x, msg.target_y, 0.)
             point = convSrv(point).converted_p
+
+            p = geometry_msgs.msg.Point(
+                msg.agent.pose.xyz.x, msg.agent.pose.xyz.y, 0.)
+            p = convSrv(p).converted_p
+            cagent = deepcopy(msg.agent)
+            cagent.pose.xyz.x = p.x
+            cagent.pose.xyz.y = p.y
+
+            for n in msg.neighs.poses:
+                p = geometry_msgs.msg.Point(n.pose.xyz.x, n.pose.xyz.y, 0.)
+                p = convSrv(p).converted_p
+                cn = deepcopy(n)
+                cn.pose.xyz.x = p.x
+                cn.pose.xyz.y = p.y
+                cneighs.append(cn)
+
         except rospy.ServiceException as e:
             rospy.logerr('Failed to convert robot position: {}'.format(e))
 
         nsecs = rospy.Time.now().nsecs
         secs = rospy.Time.now().secs
+        t = secs + (nsecs / 10e9)
+        if START_TIME is None:
+            START_TIME = t
+            t = 0
+        else:
+            t -= START_TIME
 
-        self._ks_bot_file.write('{} {}'.format(secs, nsecs))
+        if not self._ks_init:
+            self._ks_bot_file.write('t x y yaw')
+            for i in range(self._num_agents + self._num_virtu_agents - 1):
+                self._ks_bot_file.write(' n_x n_y n_yaw')
+            self._ks_bot_file.write(' target_x target_y dl phi dphi tau ta0')
+            self._ks_bot_file.write('\n')
+
+            self._ks_top_file.write('t x y yaw')
+            for i in range(self._num_agents + self._num_virtu_agents - 1):
+                self._ks_top_file.write(' n_x n_y n_yaw')
+            self._ks_top_file.write(' target_x target_y dl phi dphi tau ta0')
+            self._ks_top_file.write('\n')
+            self._ks_init = True
+
+        self._ks_bot_file.write('{:5f}'.format(t))
+        self._ks_bot_file.write(' {:.4f} {:.4f} {:.4f}'.format(
+            msg.agent.pose.xyz.x, msg.agent.pose.xyz.y, msg.agent.pose.rpy.yaw))
+        for n in msg.neighs.poses:
+            self._ks_bot_file.write(' {:.4f} {:.4f} {:.4f}'.format(
+                n.pose.xyz.x, n.pose.xyz.y, n.pose.rpy.yaw))
+        if len(msg.neighs.poses) < self._num_agents + self._num_virtu_agents - 1:
+            for _ in range(self._num_agents + self._num_virtu_agents - 1 - len(msg.neighs.poses)):
+                self._ks_bot_file.write(' {} {} {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
+
         self._ks_bot_file.write(' {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}'.format(
             msg.target_x, msg.target_y, msg.dl, msg.phi, msg.dphi, msg.tau, msg.tau0))
         self._ks_bot_file.write('\n')
         self._ks_bot_file.flush()
 
-        self._ks_top_file.write('{} {}'.format(secs, nsecs))
+        self._ks_top_file.write('{:5f}'.format(t))
+        self._ks_top_file.write(' {:.4f} {:.4f} {:.4f}'.format(
+            cagent.pose.xyz.x, cagent.pose.xyz.y, cagent.pose.rpy.yaw))
+        for n in cneighs.poses:
+            self._ks_top_file.write(' {:.4f} {:.4f} {:.4f}'.format(
+                n.pose.xyz.x, n.pose.xyz.y, n.pose.rpy.yaw))
+        if len(cneighs.poses) < self._num_agents + self._num_virtu_agents - 1:
+            for _ in range(self._num_agents + self._num_virtu_agents - 1 - len(cneighs.poses)):
+                self._ks_top_file.write(' {} {} {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
+
         self._ks_top_file.write(' {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}'.format(
             point.x, point.y, msg.dl, msg.phi, msg.dphi, msg.tau, msg.tau0))
         self._ks_top_file.write('\n')

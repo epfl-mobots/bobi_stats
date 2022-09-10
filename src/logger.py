@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 import rospy
 import geometry_msgs
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
 from bobi_msgs.msg import PoseVec, PoseStamped, KickSpecs
 from bobi_msgs.srv import ConvertCoordinates
 from copy import deepcopy
 from config.global_params import NUM_AGENTS, NUM_ROBOTS, NUM_VIRTU_AGENTS
+from video_rec import VideoRec
 
 import os
 import socket
@@ -35,6 +38,11 @@ class PoseStat:
         self._of = '{}/{}_{}'.format(self._of, hostname, date_time)
         os.makedirs(self._of)
 
+        self._fp_init = False
+        self._up_init = False
+        self._ro_init = False
+        self._ks_init = False
+
         self._fp_top_file = open(
             '{}/filtered_poses_top.txt'.format(self._of), 'w')
         self._fp_bot_file = open(
@@ -64,10 +72,19 @@ class PoseStat:
         self._ks_sub = rospy.Subscriber(
             'kick_specs', KickSpecs, self._kick_specs_cb)
 
-        self._fp_init = False
-        self._up_init = False
-        self._ro_init = False
-        self._ks_init = False
+        self._bridge = CvBridge()
+
+        self._top_annot_vr = None
+        self._top_annot_img_sub = rospy.Subscriber(
+            'top_camera/image_annot', Image, self._top_img_annot_cb)
+
+        self._top_masked_vr = None
+        self._top_masked_img_sub = rospy.Subscriber(
+            'top_camera/image_masked', Image, self._top_img_masked_cb)
+
+        self._bot_annot_vr = None
+        self._bot_annot_img_sub = rospy.Subscriber(
+            'bottom_camera/image_annot', Image, self._bot_img_annot_cb)
 
     def __del__(self):
         self._fp_top_file.close()
@@ -83,7 +100,6 @@ class PoseStat:
         pass
 
     def _filtered_poses_cb(self, msg):
-        global START_TIME, NOT_FOUND
         data = msg.poses
 
         conv_data = []
@@ -101,15 +117,7 @@ class PoseStat:
             except rospy.ServiceException as e:
                 rospy.logerr('Failed to convert unfiltered pose: {}'.format(e))
 
-        nsecs = rospy.Time.now().nsecs
-        secs = rospy.Time.now().secs
-        t = secs + (nsecs / 10e9)
-        if START_TIME is None:
-            START_TIME = t
-            t = 0
-        else:
-            t -= START_TIME
-
+        t = self._get_stamp()
         if not self._fp_init:
             self._fp_top_file.write('t ')
             self._fp_bot_file.write('t ')
@@ -147,7 +155,6 @@ class PoseStat:
         self._fp_bot_file.flush()
 
     def _unfiltered_poses_cb(self, msg):
-        global START_TIME, NOT_FOUND
         data = msg.poses
 
         conv_data = []
@@ -165,15 +172,7 @@ class PoseStat:
             except rospy.ServiceException as e:
                 rospy.logerr('Failed to convert unfiltered pose: {}'.format(e))
 
-        nsecs = rospy.Time.now().nsecs
-        secs = rospy.Time.now().secs
-        t = secs + (nsecs / 10e9)
-        if START_TIME is None:
-            START_TIME = t
-            t = 0
-        else:
-            t -= START_TIME
-
+        t = self._get_stamp()
         if not self._up_init:
             self._up_top_file.write('t ')
             self._up_bot_file.write('t ')
@@ -208,7 +207,6 @@ class PoseStat:
         self._up_bot_file.flush()
 
     def _robot_poses_cb(self, msg):
-        global START_TIME, NOT_FOUND
         data = msg.poses
 
         conv_data = []
@@ -226,15 +224,7 @@ class PoseStat:
             except rospy.ServiceException as e:
                 rospy.logerr('Failed to convert robot pose: {}'.format(e))
 
-        nsecs = rospy.Time.now().nsecs
-        secs = rospy.Time.now().secs
-        t = secs + (nsecs / 10e9)
-        if START_TIME is None:
-            START_TIME = t
-            t = 0
-        else:
-            t -= START_TIME
-
+        t = self._get_stamp()
         if not self._ro_init:
             self._ro_bot_file.write('t ')
             self._ro_top_file.write('t ')
@@ -270,7 +260,6 @@ class PoseStat:
         self._ro_top_file.flush()
 
     def _kick_specs_cb(self, msg):
-        global START_TIME, NOT_FOUND
 
         point = geometry_msgs.msg.Point(NOT_FOUND, NOT_FOUND, 0.)
         cagent = PoseStamped()
@@ -294,20 +283,12 @@ class PoseStat:
                 cn = deepcopy(n)
                 cn.pose.xyz.x = p.x
                 cn.pose.xyz.y = p.y
-                cneighs.append(cn)
+                cneighs.poses.append(cn)
 
         except rospy.ServiceException as e:
             rospy.logerr('Failed to convert robot position: {}'.format(e))
 
-        nsecs = rospy.Time.now().nsecs
-        secs = rospy.Time.now().secs
-        t = secs + (nsecs / 10e9)
-        if START_TIME is None:
-            START_TIME = t
-            t = 0
-        else:
-            t -= START_TIME
-
+        t = self._get_stamp()
         if not self._ks_init:
             self._ks_bot_file.write('t x y yaw')
             for i in range(self._num_agents + self._num_virtu_agents - 1):
@@ -354,10 +335,52 @@ class PoseStat:
         self._ks_top_file.write('\n')
         self._ks_top_file.flush()
 
+    def _top_img_annot_cb(self, msg):
+        t = self._get_stamp()
+        img = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
+        if img.shape[0] > 0 and img.shape[1] > 0:
+            if self._top_annot_vr is None:
+                fps = rospy.get_param('top_camera/fps')
+                self._top_annot_vr = VideoRec(
+                    '{}/top_annot'.format(self._of), img.shape[1], img.shape[0], fps)
+            self._top_annot_vr.write(img, t)
+
+    def _top_img_masked_cb(self, msg):
+        t = self._get_stamp()
+        img = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
+        if img.shape[0] > 0 and img.shape[1] > 0:
+            if self._top_masked_vr is None:
+                fps = rospy.get_param('top_camera/fps')
+                self._top_masked_vr = VideoRec(
+                    '{}/top_masked'.format(self._of), img.shape[1], img.shape[0], fps)
+            self._top_masked_vr.write(img, t)
+
+    def _bot_img_annot_cb(self, msg):
+        t = self._get_stamp()
+        img = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
+        if img.shape[0] > 0 and img.shape[1] > 0:
+            if self._bot_annot_vr is None:
+                fps = rospy.get_param('bottom_camera/fps')
+                self._bot_annot_vr = VideoRec(
+                    '{}/bot_annot'.format(self._of), img.shape[1], img.shape[0], fps)
+            self._bot_annot_vr.write(img, t)
+
+    def _get_stamp(self):
+        global START_TIME, NOT_FOUND
+        nsecs = rospy.Time.now().nsecs
+        secs = rospy.Time.now().secs
+        t = secs + (nsecs / 10 ** 9)
+        if START_TIME is None:
+            START_TIME = t
+            t = 0
+        else:
+            t -= START_TIME
+        return t
+
 
 def main():
     rospy.init_node('logger_node')
-    rate = rospy.get_param("top_camera/fps", 60)
+    rate = rospy.get_param("top_camera/fps", 80)
     rate = rospy.Rate(rate)
     ps = PoseStat()
     while not rospy.is_shutdown():

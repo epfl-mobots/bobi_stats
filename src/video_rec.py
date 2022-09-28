@@ -19,7 +19,7 @@ class VideoRec:
     def write(self, img, t):
         cv2.putText(img,
                     'Log time: {:.3f}'.format(t),
-                    (int(img.shape[1]*0.55), int(img.shape[0]*0.93)),
+                    (int(img.shape[1]*0.55), int(img.shape[0]*0.97)),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.5,
                     (0, 200, 200),

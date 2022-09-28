@@ -3,7 +3,7 @@ import rospy
 import geometry_msgs
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
-from bobi_msgs.msg import PoseVec, PoseStamped, KickSpecs
+from bobi_msgs.msg import PoseVec, PoseStamped, KickSpecs, DLISpecs
 from bobi_msgs.srv import ConvertCoordinates
 from copy import deepcopy
 from config.global_params import NUM_AGENTS, NUM_ROBOTS, NUM_VIRTU_AGENTS
@@ -42,16 +42,17 @@ class PoseStat:
         self._up_init = False
         self._ro_init = False
         self._ks_init = False
+        self._dli_init = False
 
         self._fp_top_file = open(
-            '{}/filtered_poses_top.txt'.format(self._of), 'w')
+            '{}/id_poses_top.txt'.format(self._of), 'w')
         self._fp_bot_file = open(
-            '{}/filtered_poses_bot.txt'.format(self._of), 'w')
+            '{}/id_poses_bot.txt'.format(self._of), 'w')
 
         self._up_top_file = open(
-            '{}/unfiltered_poses_top.txt'.format(self._of), 'w')
+            '{}/raw_poses_top.txt'.format(self._of), 'w')
         self._up_bot_file = open(
-            '{}/unfiltered_poses_bot.txt'.format(self._of), 'w')
+            '{}/raw_poses_bot.txt'.format(self._of), 'w')
 
         self._ro_top_file = open(
             '{}/robot_poses_top.txt'.format(self._of), 'w')
@@ -63,6 +64,11 @@ class PoseStat:
         self._ks_bot_file = open(
             '{}/kick_specs_bot.txt'.format(self._of), 'w')
 
+        self._dli_top_file = open(
+            '{}/dli_specs_top.txt'.format(self._of), 'w')
+        self._dli_bot_file = open(
+            '{}/dli_specs_bot.txt'.format(self._of), 'w')
+
         self._fp_sub = rospy.Subscriber(
             'filtered_poses', PoseVec, self._filtered_poses_cb)
         self._up_sub = rospy.Subscriber(
@@ -71,6 +77,8 @@ class PoseStat:
             'robot_poses', PoseVec, self._robot_poses_cb)
         self._ks_sub = rospy.Subscriber(
             'kick_specs', KickSpecs, self._kick_specs_cb)
+        self._dl_sub = rospy.Subscriber(
+            'dli_specs', DLISpecs, self._dli_specs_cb)
 
         self._bridge = CvBridge()
 
@@ -95,6 +103,8 @@ class PoseStat:
         self._ro_bot_file.close()
         self._ks_top_file.close()
         self._ks_bot_file.close()
+        self._dli_top_file.close()
+        self._dli_bot_file.close()
 
     def update(self):
         pass
@@ -131,7 +141,7 @@ class PoseStat:
         self._fp_top_file.write('{:5f}'.format(t))
 
         for p in data:
-            self._fp_top_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+            self._fp_top_file.write(' {:.6f} {:.6f} {:.6f} {} {}'.format(
                 p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
         if len(data) < self._num_agents + self._num_virtu_agents:
             for _ in range(self._num_agents + self._num_virtu_agents - len(data)):
@@ -144,7 +154,7 @@ class PoseStat:
         self._fp_bot_file.write('{:5f}'.format(t))
 
         for p in conv_data:
-            self._fp_bot_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+            self._fp_bot_file.write(' {:.6f} {:.6f} {:.6f} {} {}'.format(
                 p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
         if len(conv_data) < self._num_agents + self._num_virtu_agents:
             for _ in range(self._num_agents + self._num_virtu_agents - len(conv_data)):
@@ -185,7 +195,7 @@ class PoseStat:
 
         self._up_top_file.write('{:5f}'.format(t))
         for p in data:
-            self._up_top_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+            self._up_top_file.write(' {:.6f} {:.6f} {:.6f} {} {}'.format(
                 p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
         if len(data) < self._num_agents + self._num_virtu_agents:
             for _ in range(self._num_agents + self._num_virtu_agents - len(data)):
@@ -197,7 +207,7 @@ class PoseStat:
 
         self._up_bot_file.write('{:5f}'.format(t))
         for p in conv_data:
-            self._up_bot_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+            self._up_bot_file.write(' {:.6f} {:.6f} {:.6f} {} {}'.format(
                 p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
         if len(conv_data) < self._num_agents + self._num_virtu_agents:
             for _ in range(self._num_agents + self._num_virtu_agents - len(conv_data)):
@@ -237,7 +247,7 @@ class PoseStat:
 
         self._ro_bot_file.write('{:5f}'.format(t))
         for p in data:
-            self._ro_bot_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+            self._ro_bot_file.write(' {:.6f} {:.6f} {:.6f} {} {}'.format(
                 p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
         if len(data) < self._num_agents + self._num_virtu_agents:
             for _ in range(self._num_agents + self._num_virtu_agents - len(data)):
@@ -249,7 +259,7 @@ class PoseStat:
 
         self._ro_top_file.write('{:5f}'.format(t))
         for p in conv_data:
-            self._ro_top_file.write(' {:.4f} {:.4f} {:.4f} {} {}'.format(
+            self._ro_top_file.write(' {:.6f} {:.6f} {:.6f} {} {}'.format(
                 p.pose.xyz.x, p.pose.xyz.y, p.pose.rpy.yaw, int(p.pose.is_filtered == True), int(p.pose.is_swapped == True)))
         if len(conv_data) < self._num_agents + self._num_virtu_agents:
             for _ in range(self._num_agents + self._num_virtu_agents - len(conv_data)):
@@ -304,36 +314,97 @@ class PoseStat:
             self._ks_init = True
 
         self._ks_bot_file.write('{:5f}'.format(t))
-        self._ks_bot_file.write(' {:.4f} {:.4f} {:.4f}'.format(
+        self._ks_bot_file.write(' {:.6f} {:.6f} {:.6f}'.format(
             msg.agent.pose.xyz.x, msg.agent.pose.xyz.y, msg.agent.pose.rpy.yaw))
         for n in msg.neighs.poses:
-            self._ks_bot_file.write(' {:.4f} {:.4f} {:.4f}'.format(
+            self._ks_bot_file.write(' {:.6f} {:.6f} {:.6f}'.format(
                 n.pose.xyz.x, n.pose.xyz.y, n.pose.rpy.yaw))
         if len(msg.neighs.poses) < self._num_agents + self._num_virtu_agents - 1:
             for _ in range(self._num_agents + self._num_virtu_agents - 1 - len(msg.neighs.poses)):
                 self._ks_bot_file.write(' {} {} {} {} {}'.format(
                     NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
 
-        self._ks_bot_file.write(' {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}'.format(
+        self._ks_bot_file.write(' {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f}'.format(
             msg.target_x, msg.target_y, msg.dl, msg.phi, msg.dphi, msg.tau, msg.tau0))
         self._ks_bot_file.write('\n')
         self._ks_bot_file.flush()
 
         self._ks_top_file.write('{:5f}'.format(t))
-        self._ks_top_file.write(' {:.4f} {:.4f} {:.4f}'.format(
+        self._ks_top_file.write(' {:.6f} {:.6f} {:.6f}'.format(
             cagent.pose.xyz.x, cagent.pose.xyz.y, cagent.pose.rpy.yaw))
         for n in cneighs.poses:
-            self._ks_top_file.write(' {:.4f} {:.4f} {:.4f}'.format(
+            self._ks_top_file.write(' {:.6f} {:.6f} {:.6f}'.format(
                 n.pose.xyz.x, n.pose.xyz.y, n.pose.rpy.yaw))
         if len(cneighs.poses) < self._num_agents + self._num_virtu_agents - 1:
             for _ in range(self._num_agents + self._num_virtu_agents - 1 - len(cneighs.poses)):
                 self._ks_top_file.write(' {} {} {} {} {}'.format(
                     NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
 
-        self._ks_top_file.write(' {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}'.format(
+        self._ks_top_file.write(' {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f}'.format(
             point.x, point.y, msg.dl, msg.phi, msg.dphi, msg.tau, msg.tau0))
         self._ks_top_file.write('\n')
         self._ks_top_file.flush()
+
+    def _dli_specs_cb(self, msg):
+
+        point = geometry_msgs.msg.Point(NOT_FOUND, NOT_FOUND, 0.)
+        cagent = PoseStamped()
+        cneigh = PoseStamped()
+        try:
+            convSrv = rospy.ServiceProxy(
+                '/convert_bottom2top', ConvertCoordinates)
+            point = geometry_msgs.msg.Point(msg.target_x, msg.target_y, 0.)
+            point = convSrv(point).converted_p
+
+            p = geometry_msgs.msg.Point(
+                msg.agent.pose.xyz.x, msg.agent.pose.xyz.y, 0.)
+            p = convSrv(p).converted_p
+            cagent = deepcopy(msg.agent)
+            cagent.pose.xyz.x = p.x
+            cagent.pose.xyz.y = p.y
+
+            p = geometry_msgs.msg.Point(
+                msg.neigh.pose.xyz.x, msg.neigh.pose.xyz.y, 0.)
+            p = convSrv(p).converted_p
+            cagent = deepcopy(msg.neigh)
+            cneigh.pose.xyz.x = p.x
+            cneigh.pose.xyz.y = p.y
+
+        except rospy.ServiceException as e:
+            rospy.logerr('Failed to convert robot position: {}'.format(e))
+
+        t = self._get_stamp()
+        if not self._dli_init:
+            self._dli_bot_file.write('t gx gy sx sy target_x target_y')
+            self._dli_bot_file.write(' x y yaw')
+            self._dli_bot_file.write(' n_x n_y n_yaw')
+            self._dli_bot_file.write('\n')
+
+            self._dli_top_file.write('t gx gy sx sy target_x target_y')
+            self._dli_top_file.write(' x y yaw')
+            self._dli_top_file.write(' n_x n_y n_yaw')
+            self._dli_top_file.write('\n')
+            self._dli_init = True
+
+        self._dli_bot_file.write('{:5f}'.format(t))
+        self._dli_bot_file.write(' {:6f} {:6f} {:6f} {:6f}'.format(
+            msg.gx, msg.gy, msg.sx, msg.sy))
+        self._dli_bot_file.write(' {:.6f} {:.6f} {:.6f}'.format(
+            msg.agent.pose.xyz.x, msg.agent.pose.xyz.y, msg.agent.pose.rpy.yaw))
+        self._dli_bot_file.write(' {:.6f} {:.6f} {:.6f}'.format(
+            msg.neigh.pose.xyz.x, msg.neigh.pose.xyz.y, msg.neigh.pose.rpy.yaw))
+        self._dli_bot_file.write('\n')
+        self._dli_bot_file.flush()
+
+        self._dli_top_file.write('{:5f}'.format(t))
+        self._dli_top_file.write(' {:6f} {:6f} {:6f} {:6f}'.format(
+            msg.gx, msg.gy, msg.sx, msg.sy))
+        self._dli_top_file.write(' {:.6f} {:.6f} {:.6f}'.format(
+            cagent.pose.xyz.x, cagent.pose.xyz.y, cagent.pose.rpy.yaw))
+        self._dli_top_file.write(' {:.6f} {:.6f} {:.6f}'.format(
+            cneigh.pose.xyz.x, cneigh.pose.xyz.y, cneigh.pose.rpy.yaw))
+        self._dli_top_file.write('\n')
+        self._dli_top_file.flush()
 
     def _top_img_annot_cb(self, msg):
         t = self._get_stamp()

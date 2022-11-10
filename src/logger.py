@@ -3,7 +3,7 @@ import rospy
 import geometry_msgs
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
-from bobi_msgs.msg import PoseVec, PoseStamped, KickSpecs, DLISpecs
+from bobi_msgs.msg import PoseVec, PoseStamped, KickSpecs, DLISpecs, MotorVelocities
 from bobi_msgs.srv import ConvertCoordinates
 from copy import deepcopy
 from config.global_params import NUM_AGENTS, NUM_ROBOTS, NUM_VIRTU_AGENTS
@@ -14,7 +14,7 @@ import socket
 from datetime import datetime
 import numpy as np
 
-NOT_FOUND = 9999999
+NOT_FOUND = 9999999.9
 START_TIME = None
 
 
@@ -43,6 +43,7 @@ class PoseStat:
         self._ro_init = False
         self._ks_init = False
         self._dli_init = False
+        self._sv_init = False
 
         self._fp_top_file = open(
             '{}/id_poses_top.txt'.format(self._of), 'w')
@@ -69,6 +70,9 @@ class PoseStat:
         self._dli_bot_file = open(
             '{}/dli_specs_bot.txt'.format(self._of), 'w')
 
+        self._sv_file = open(
+            '{}/set_velocities.txt'.format(self._of), 'w')
+
         self._fp_sub = rospy.Subscriber(
             'filtered_poses', PoseVec, self._filtered_poses_cb)
         self._up_sub = rospy.Subscriber(
@@ -79,6 +83,9 @@ class PoseStat:
             'kick_specs', KickSpecs, self._kick_specs_cb)
         self._dl_sub = rospy.Subscriber(
             'dli_specs', DLISpecs, self._dli_specs_cb)
+
+        self._sv_sub = rospy.Subscriber(
+            'set_velocities', MotorVelocities, self._motor_velocities_cb)
 
         self._bridge = CvBridge()
 
@@ -105,6 +112,8 @@ class PoseStat:
         self._ks_bot_file.close()
         self._dli_top_file.close()
         self._dli_bot_file.close()
+        self._sv_file.close()
+
 
     def update(self):
         pass
@@ -321,8 +330,8 @@ class PoseStat:
                 n.pose.xyz.x, n.pose.xyz.y, n.pose.rpy.yaw))
         if len(msg.neighs.poses) < self._num_agents + self._num_virtu_agents - 1:
             for _ in range(self._num_agents + self._num_virtu_agents - 1 - len(msg.neighs.poses)):
-                self._ks_bot_file.write(' {} {} {} {} {}'.format(
-                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
+                self._ks_bot_file.write(' {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND))
 
         self._ks_bot_file.write(' {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f}'.format(
             msg.target_x, msg.target_y, msg.dl, msg.phi, msg.dphi, msg.tau, msg.tau0))
@@ -337,8 +346,8 @@ class PoseStat:
                 n.pose.xyz.x, n.pose.xyz.y, n.pose.rpy.yaw))
         if len(cneighs.poses) < self._num_agents + self._num_virtu_agents - 1:
             for _ in range(self._num_agents + self._num_virtu_agents - 1 - len(cneighs.poses)):
-                self._ks_top_file.write(' {} {} {} {} {}'.format(
-                    NOT_FOUND, NOT_FOUND, NOT_FOUND, 0, 0))
+                self._ks_top_file.write(' {} {} {}'.format(
+                    NOT_FOUND, NOT_FOUND, NOT_FOUND))
 
         self._ks_top_file.write(' {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f}'.format(
             point.x, point.y, msg.dl, msg.phi, msg.dphi, msg.tau, msg.tau0))
@@ -405,6 +414,12 @@ class PoseStat:
             cneigh.pose.xyz.x, cneigh.pose.xyz.y, cneigh.pose.rpy.yaw))
         self._dli_top_file.write('\n')
         self._dli_top_file.flush()
+
+    def _motor_velocities_cb(self, msg):
+        t = self._get_stamp()
+        self._sv_file.write('{} {} {}'.format(t, msg.left, msg.right))
+        self._sv_file.write('\n')
+        self._sv_file.flush()
 
     def _top_img_annot_cb(self, msg):
         t = self._get_stamp()

@@ -16,15 +16,16 @@ class VideoRec:
         self._vr = cv2.VideoWriter(
             self._filename + '.mp4', fourcc, fps, (width, height))
 
-    def write(self, img, t):
-        cv2.putText(img,
-                    'Log time: {:.3f}'.format(t),
-                    (int(img.shape[1]*0.55), int(img.shape[0]*0.97)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (0, 200, 200),
-                    2,
-                    cv2.LINE_AA)
+    def write(self, img, t, stamp=True):
+        if stamp:
+            cv2.putText(img,
+                        'Log time: {:.3f}'.format(t),
+                        (int(img.shape[1]*0.55), int(img.shape[0]*0.97)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (0, 200, 200),
+                        2,
+                        cv2.LINE_AA)
         self._vr.write(img)
 
     def __del__(self):

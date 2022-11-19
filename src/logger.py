@@ -270,24 +270,22 @@ class PoseStat:
             self._bot_annot_vr.write(img, t)
 
     def _bot_img_raw_cb(self, msg):
-        t = self._get_stamp()
         img = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
         if img.shape[0] > 0 and img.shape[1] > 0:
             if self._bot_raw_vr is None:
                 fps = rospy.get_param('bottom_camera/fps')
                 self._bot_raw_vr = VideoRec(
                     '{}/bot_raw'.format(self._of), img.shape[1], img.shape[0], fps)
-            self._bot_raw_vr.write(img, t)
+            self._bot_raw_vr.write(img, 0, False)
 
     def _top_img_raw_cb(self, msg):
-        t = self._get_stamp()
         img = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
         if img.shape[0] > 0 and img.shape[1] > 0:
             if self._top_raw_vr is None:
                 fps = rospy.get_param('top_camera/fps')
                 self._top_raw_vr = VideoRec(
                     '{}/top_raw'.format(self._of), img.shape[1], img.shape[0], fps)
-            self._top_raw_vr.write(img, t)
+            self._top_raw_vr.write(img, 0, False)
 
 
 

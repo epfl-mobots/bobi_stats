@@ -10,6 +10,11 @@ find_package(
     geometry_msgs
     sensor_msgs
     bobi_msgs
+    dynamic_reconfigure
+)
+
+generate_dynamic_reconfigure_options(
+  # config/Logger.cfg
 )
 
 catkin_package(
@@ -20,5 +25,3 @@ include_directories(
   include
   ${catkin_INCLUDE_DIRS}
 )
-
-

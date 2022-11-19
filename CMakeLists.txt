@@ -14,7 +14,7 @@ find_package(
 )
 
 generate_dynamic_reconfigure_options(
-  # config/Logger.cfg
+  config/Logger.cfg
 )
 
 catkin_package(

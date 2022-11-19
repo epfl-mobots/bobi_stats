@@ -3,37 +3,31 @@ import rospy
 import geometry_msgs
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
-from bobi_msgs.msg import PoseVec, PoseStamped, KickSpecs, DLISpecs, MotorVelocities
-from bobi_msgs.srv import ConvertCoordinates
+from bobi_msgs.msg import PoseVec, PoseStamped, KickSpecs, DLISpecs, MotorVelocities, NumAgents
+from bobi_msgs.srv import ConvertCoordinates, GetNumAgents
 from copy import deepcopy
-from config.global_params import NUM_AGENTS, NUM_ROBOTS, NUM_VIRTU_AGENTS
-from video_rec import VideoRec
+from video_rec import Mp4Rec, AviRec
+
+from dynamic_reconfigure.server import Server
+from bobi_stats.cfg import LoggerConfig
 
 import os
 import socket
 from datetime import datetime
 import numpy as np
+from tqdm import tqdm
+import cv2
 
 NOT_FOUND = 9999999.9
 START_TIME = None
 
 
-class PoseStat:
-    def __init__(self):
-        self._rate = rospy.get_param("top_camera/fps", 60)
-        self._num_agents = NUM_AGENTS
-        self._num_robots = NUM_ROBOTS
-        self._num_virtu_agents = NUM_VIRTU_AGENTS
-
-        self._of = rospy.get_param('logger/output_folder', '.')
-        if '~' in self._of:
-            home = os.path.expanduser('~')
-            self._of = self._of.replace('~', home)
-        hostname = socket.gethostname()
-        now = datetime.now()
-        date_time = now.strftime("%m_%d_%Y-%H_%M_%S")
-        self._of = '{}/{}_{}'.format(self._of, hostname, date_time)
-        os.makedirs(self._of)
+class SystemLogs:
+    def __init__(self, output_folder, num_agents, num_robots, num_virtu_agents):
+        self._num_agents = num_agents
+        self._num_robots = num_robots
+        self._num_virtu_agents = num_virtu_agents
+        self._of = output_folder
 
         self._fp_init = False
         self._up_init = False
@@ -245,7 +239,7 @@ class PoseStat:
         if img.shape[0] > 0 and img.shape[1] > 0:
             if self._top_annot_vr is None:
                 fps = rospy.get_param('top_camera/fps')
-                self._top_annot_vr = VideoRec(
+                self._top_annot_vr = Mp4Rec(
                     '{}/top_annot'.format(self._of), img.shape[1], img.shape[0], fps)
             self._top_annot_vr.write(img, t)
 
@@ -255,7 +249,7 @@ class PoseStat:
         if img.shape[0] > 0 and img.shape[1] > 0:
             if self._top_masked_vr is None:
                 fps = rospy.get_param('top_camera/fps')
-                self._top_masked_vr = VideoRec(
+                self._top_masked_vr = Mp4Rec(
                     '{}/top_masked'.format(self._of), img.shape[1], img.shape[0], fps)
             self._top_masked_vr.write(img, t)
 
@@ -265,7 +259,7 @@ class PoseStat:
         if img.shape[0] > 0 and img.shape[1] > 0:
             if self._bot_annot_vr is None:
                 fps = rospy.get_param('bottom_camera/fps')
-                self._bot_annot_vr = VideoRec(
+                self._bot_annot_vr = Mp4Rec(
                     '{}/bot_annot'.format(self._of), img.shape[1], img.shape[0], fps)
             self._bot_annot_vr.write(img, t)
 
@@ -274,7 +268,7 @@ class PoseStat:
         if img.shape[0] > 0 and img.shape[1] > 0:
             if self._bot_raw_vr is None:
                 fps = rospy.get_param('bottom_camera/fps')
-                self._bot_raw_vr = VideoRec(
+                self._bot_raw_vr = Mp4Rec(
                     '{}/bot_raw'.format(self._of), img.shape[1], img.shape[0], fps)
             self._bot_raw_vr.write(img, 0, False)
 
@@ -283,11 +277,9 @@ class PoseStat:
         if img.shape[0] > 0 and img.shape[1] > 0:
             if self._top_raw_vr is None:
                 fps = rospy.get_param('top_camera/fps')
-                self._top_raw_vr = VideoRec(
+                self._top_raw_vr = Mp4Rec(
                     '{}/top_raw'.format(self._of), img.shape[1], img.shape[0], fps)
             self._top_raw_vr.write(img, 0, False)
-
-
 
     def _get_stamp(self):
         global START_TIME, NOT_FOUND
@@ -302,13 +294,106 @@ class PoseStat:
         return t
 
 
+class HighResRec:
+    def __init__(self, output_folder, device, num_buffers):
+        self._of = output_folder
+        self._device = device 
+        self._num_buffers = num_buffers 
+
+        self._dev = cv2.VideoCapture(device)
+        if not self._dev.isOpened():
+            self._num_buffers = -2
+        else:
+            if self._num_buffers > 0:
+                self._pbar = tqdm(total=self._num_buffers)
+            
+
+        self._vr = AviRec(
+                    '{}/hq-rec'.format(self._of), cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS)
+
+        self._count = 0
+
+    def __del__(self):
+        if self._dev.isOpened():
+            self._pbar.close()
+            self._vr.release()
+            self._dev.release()
+
+    def update(self):
+        if self._num_buffers > -2:
+            ret, frame = self._dev.read()
+            if ret:
+                self._vr.write(frame, 0, False)
+                self._count += 1
+                self._pbar.update(self._count)
+
+            if self._num_buffers > -1 and self._count >= self._num_buffers:
+                self._num_buffers = -2
+                self._vr.release()
+                self._dev.release()
+                self._pbar.close()
+
+
+class Logs:
+    def __init__(self):
+        rospy.wait_for_service('get_num_agents')
+        try:
+            get_num_agents = rospy.ServiceProxy('get_num_agents', GetNumAgents)
+            resp = get_num_agents()
+            self._num_agents = resp.info.num_agents
+            self._num_robots = resp.info.num_robots
+            self._num_virtu_agents = resp.info.num_virtu_agents
+        except rospy.ServiceException as e:
+            pass 
+
+        self._device = 4
+        self._num_buffers = -2
+        self._cfg_srv = Server(LoggerConfig, self._cfg_cb)
+
+        # self._reset()
+        rospy.Subscriber("num_agents_update", NumAgents, self._num_agents_cb)
+
+    def _cfg_cb(self, config, level):
+        self._device = config.device 
+        self._num_buffers = config.num_buffers
+        self._reset()
+        return config
+
+
+    def update(self):
+        self._sl.update()
+        self._hrr.update()
+
+    def _reset(self):
+        self._type = 'bobi'
+
+        self._of = rospy.get_param('logger/output_folder', '.')
+        if '~' in self._of:
+            home = os.path.expanduser('~')
+            self._of = self._of.replace('~', home)
+        now = datetime.now()
+        date_time = now.strftime("%m_%d_%Y-%H_%M_%S")
+        
+        self._of = '{}/{}-{}_{}-{}-{}'.format(self._of, self._type, date_time, self._num_agents, self._num_robots, self._num_virtu_agents)
+        os.makedirs(self._of)
+
+        self._sl = SystemLogs(self._of, self._num_agents, self._num_robots, self._num_virtu_agents)
+        self._hrr = HighResRec(self._of, self._device, self._num_buffers)
+
+    def _num_agents_cb(self, msg):
+        self._num_agents = msg.num_agents
+        self._num_robots = msg.num_robots
+        self._num_virtu_agents = msg.num_virtu_agents
+        self._reset()
+
 def main():
     rospy.init_node('logger_node')
     rate = rospy.get_param("top_camera/fps", 80)
     rate = rospy.Rate(rate)
-    ps = PoseStat()
+
+    l = Logs()
     while not rospy.is_shutdown():
-        ps.update()
+        l.update()
         rate.sleep()
 
 

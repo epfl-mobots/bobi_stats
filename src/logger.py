@@ -295,47 +295,65 @@ class SystemLogs:
 
 
 class HighResRec:
-    def __init__(self, output_folder, device, num_buffers):
+    def __init__(self, output_folder, device, num_buffers, fps=30):
         self._of = output_folder
         self._device = device 
         self._num_buffers = num_buffers 
 
-        self._dev = cv2.VideoCapture(device)
-        if not self._dev.isOpened():
-            self._num_buffers = -2
-        else:
-            if self._num_buffers > 0:
-                self._pbar = tqdm(total=self._num_buffers)
-            
-
-        self._vr = AviRec(
-                    '{}/hq-rec'.format(self._of), cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS)
-
         self._count = 0
+        self._pbar = None
+        self._dev = None 
+        self._vr = None
+
+        if self._num_buffers > -2:
+            self._dev = cv2.VideoCapture(device)
+            if not self._dev.isOpened():
+                assert False
+
+            self._vr = AviRec(
+                        '{}/hq-rec'.format(self._of), 1500, 1500, 30)
+
 
     def __del__(self):
-        if self._dev.isOpened():
-            self._pbar.close()
-            self._vr.release()
+        if self._dev is not None and self._dev.isOpened():
             self._dev.release()
+        
+        if self._vr is not None:
+            self._vr.release()
+        
+        if self._pbar is not None :
+            self._pbar.close()
 
     def update(self):
         if self._num_buffers > -2:
+            if self._pbar is None:
+                if self._num_buffers == -1:
+                    self._num_buffers = 400000
+                self._pbar = tqdm(total=self._num_buffers)
+
             ret, frame = self._dev.read()
             if ret:
                 self._vr.write(frame, 0, False)
                 self._count += 1
-                self._pbar.update(self._count)
+                self._pbar.update(1)
 
             if self._num_buffers > -1 and self._count >= self._num_buffers:
+                self._count = 0
                 self._num_buffers = -2
-                self._vr.release()
                 self._dev.release()
+                self._vr.release()
                 self._pbar.close()
+                self._pbar = None
 
 
 class Logs:
     def __init__(self):
+        self._device = 4
+        self._num_buffers = -2
+
+        self._sl = None 
+        self._hrr = None
+
         rospy.wait_for_service('get_num_agents')
         try:
             get_num_agents = rospy.ServiceProxy('get_num_agents', GetNumAgents)
@@ -346,23 +364,36 @@ class Logs:
         except rospy.ServiceException as e:
             pass 
 
-        self._device = 4
-        self._num_buffers = -2
         self._cfg_srv = Server(LoggerConfig, self._cfg_cb)
-
-        # self._reset()
         rospy.Subscriber("num_agents_update", NumAgents, self._num_agents_cb)
 
     def _cfg_cb(self, config, level):
-        self._device = config.device 
-        self._num_buffers = config.num_buffers
-        self._reset()
+        reset = False 
+
+        if self._device != config.device:
+            self._device = config.device 
+            reset = True 
+
+        self._start_new_session = config.start_new_session
+        if self._start_new_session:
+            reset = True 
+        
+        if self._start_new_session and (reset == False or self._num_buffers != config.num_buffers):
+            self._num_buffers = config.num_buffers
+            reset = True 
+
+        if reset:
+            self._reset()
+
         return config
 
 
     def update(self):
-        self._sl.update()
-        self._hrr.update()
+        if self._sl is not None:
+            self._sl.update()
+
+        if self._hrr is not None:
+            self._hrr.update()
 
     def _reset(self):
         self._type = 'bobi'
@@ -376,6 +407,13 @@ class Logs:
         
         self._of = '{}/{}-{}_{}-{}-{}'.format(self._of, self._type, date_time, self._num_agents, self._num_robots, self._num_virtu_agents)
         os.makedirs(self._of)
+
+        if self._sl is not None:
+            del self._sl
+            self._sl = None
+        if self._hrr is not None:
+            del self._hrr
+            self._hrr = None
 
         self._sl = SystemLogs(self._of, self._num_agents, self._num_robots, self._num_virtu_agents)
         self._hrr = HighResRec(self._of, self._device, self._num_buffers)

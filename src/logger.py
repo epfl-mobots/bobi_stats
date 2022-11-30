@@ -229,7 +229,7 @@ class SystemLogs:
 
     def _motor_velocities_cb(self, msg):
         t = self._get_stamp()
-        self._sv_file.write('{} {} {}'.format(t, msg.left, msg.right))
+        self._sv_file.write('{} {} {} {}'.format(t, msg.left, msg.right, msg.acceleration))
         self._sv_file.write('\n')
         self._sv_file.flush()
 
@@ -304,6 +304,7 @@ class HighResRec:
         self._pbar = None
         self._dev = None 
         self._vr = None
+        self._done = False
 
         if self._num_buffers > -2:
             self._dev = cv2.VideoCapture(device)
@@ -344,7 +345,10 @@ class HighResRec:
                 self._vr.release()
                 self._pbar.close()
                 self._pbar = None
+                self._done = True
 
+    def is_done(self):
+        return self._done
 
 class Logs:
     def __init__(self):
@@ -394,6 +398,9 @@ class Logs:
 
         if self._hrr is not None:
             self._hrr.update()
+
+        if self._hrr.is_done():
+            self._reset()
 
     def _reset(self):
         self._type = 'bobi'

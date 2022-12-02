@@ -307,9 +307,10 @@ class HighResRec:
         self._done = False
 
         if self._num_buffers > -2:
-            self._dev = cv2.VideoCapture(device)
+            # self._dev = cv2.VideoCapture(device)
+            self._dev = cv2.VideoCapture(device, cv2.CAP_V4L2)
             if not self._dev.isOpened():
-                assert False
+                assert False, 'Failed to open stream'
 
             self._vr = AviRec(
                         '{}/hq-rec'.format(self._of), 1500, 1500, 30)
@@ -399,8 +400,8 @@ class Logs:
         if self._hrr is not None:
             self._hrr.update()
 
-        if self._hrr.is_done():
-            self._reset()
+            if self._hrr.is_done():
+                self._reset()
 
     def _reset(self):
         self._type = 'bobi'

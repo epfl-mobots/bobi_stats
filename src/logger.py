@@ -188,6 +188,7 @@ class SystemLogs:
                 self._ks_top_file.write(' n_x n_y n_yaw')
             self._ks_top_file.write(' target_x target_y dl phi dphi tau ta0')
             self._ks_top_file.write('\n')
+            self._ks_init = True
 
         self._ks_top_file.write('{:5f}'.format(t))
         self._ks_top_file.write(' {:.6f} {:.6f} {:.6f}'.format(

@@ -92,8 +92,18 @@ class SystemLogs:
         self._top_raw_img_sub = rospy.Subscriber(
             'top_camera/image_raw', Image, self._top_img_raw_cb)
 
-
     def __del__(self):
+        self._fp_sub.unregister()
+        self._up_sub.unregister()
+        self._ro_sub.unregister()
+        self._ks_sub.unregister()
+        self._dl_sub.unregister()
+        self._top_annot_img_sub.unregister()
+        self._top_masked_img_sub.unregister()
+        self._bot_annot_img_sub.unregister()
+        self._bot_raw_img_sub.unregister()
+        self._top_raw_img_sub.unregister()
+
         self._fp_top_file.close()
         self._up_top_file.close()
         self._ro_bot_file.close()
@@ -101,6 +111,21 @@ class SystemLogs:
         self._dli_top_file.close()
         self._sv_file.close()
 
+        if self._top_raw_vr is not None:
+            self._top_raw_vr.release()
+            del self._top_raw_vr
+        if self._top_annot_vr is not None:
+            self._top_annot_vr.release()
+            del self._top_annot_vr
+        if self._top_masked_vr is not None:
+            self._top_masked_vr.release()
+            del self._top_masked_vr
+        if self._bot_annot_vr is not None:
+            self._bot_annot_vr.release()
+            del self._bot_annot_vr
+        if self._bot_raw_vr is not None:
+            self._bot_raw_vr.release()
+            del self._bot_raw_vr
 
     def update(self):
         pass
@@ -129,7 +154,6 @@ class SystemLogs:
         self._fp_top_file.write('\n')
         self._fp_top_file.flush()
 
-
     def _unfiltered_poses_cb(self, msg):
         data = msg.poses
 
@@ -152,7 +176,6 @@ class SystemLogs:
 
         self._up_top_file.write('\n')
         self._up_top_file.flush()
-
 
     def _robot_poses_cb(self, msg):
         data = msg.poses
@@ -177,13 +200,12 @@ class SystemLogs:
         self._ro_bot_file.write('\n')
         self._ro_bot_file.flush()
 
-
     def _kick_specs_cb(self, msg):
         point = geometry_msgs.msg.Point(NOT_FOUND, NOT_FOUND, 0.)
 
         t = self._get_stamp()
         if not self._ks_init:
-            self._ks_top_file.write('t x y yaw')
+            self._ks_top_file.write('t x y yaw intervene gatt gali')
             for i in range(self._num_agents + self._num_virtu_agents - 1):
                 self._ks_top_file.write(' n_x n_y n_yaw')
             self._ks_top_file.write(' target_x target_y dl phi dphi tau ta0')
@@ -191,8 +213,8 @@ class SystemLogs:
             self._ks_init = True
 
         self._ks_top_file.write('{:5f}'.format(t))
-        self._ks_top_file.write(' {:.6f} {:.6f} {:.6f}'.format(
-            msg.agent.pose.xyz.x, msg.agent.pose.xyz.y, msg.agent.pose.rpy.yaw))
+        self._ks_top_file.write(' {:.6f} {:.6f} {:.6f} {} {:.6f} {:.6f}'.format(
+            msg.agent.pose.xyz.x, msg.agent.pose.xyz.y, msg.agent.pose.rpy.yaw, msg.intervene, msg.gatt, msg.gali))
         for n in msg.neighs.poses:
             self._ks_top_file.write(' {:.6f} {:.6f} {:.6f}'.format(
                 n.pose.xyz.x, n.pose.xyz.y, n.pose.rpy.yaw))
@@ -205,7 +227,6 @@ class SystemLogs:
             msg.target_x, msg.target_y, msg.dl, msg.phi, msg.dphi, msg.tau, msg.tau0))
         self._ks_top_file.write('\n')
         self._ks_top_file.flush()
-
 
     def _dli_specs_cb(self, msg):
         point = geometry_msgs.msg.Point(NOT_FOUND, NOT_FOUND, 0.)
@@ -227,10 +248,10 @@ class SystemLogs:
         self._dli_top_file.write('\n')
         self._dli_top_file.flush()
 
-
     def _motor_velocities_cb(self, msg):
         t = self._get_stamp()
-        self._sv_file.write('{} {} {} {}'.format(t, msg.left, msg.right, msg.acceleration))
+        self._sv_file.write('{} {} {} {}'.format(
+            t, msg.left, msg.right, msg.acceleration))
         self._sv_file.write('\n')
         self._sv_file.flush()
 
@@ -298,33 +319,33 @@ class SystemLogs:
 class HighResRec:
     def __init__(self, output_folder, device, num_buffers, fps=30):
         self._of = output_folder
-        self._device = device 
-        self._num_buffers = num_buffers 
+        self._device = device
+        self._num_buffers = num_buffers
 
         self._count = 0
         self._pbar = None
-        self._dev = None 
+        self._dev = None
         self._vr = None
         self._done = False
 
         if self._num_buffers > -2:
             # self._dev = cv2.VideoCapture(device)
             self._dev = cv2.VideoCapture(device, cv2.CAP_V4L2)
+            # self._dev = cv2.VideoCapture(device, cv2.CAP_GSTREAMER)
             if not self._dev.isOpened():
                 assert False, 'Failed to open stream'
 
             self._vr = AviRec(
-                        '{}/hq-rec'.format(self._of), 1500, 1500, 30)
-
+                '{}/hq-rec'.format(self._of), 1500, 1500, 30)
 
     def __del__(self):
         if self._dev is not None and self._dev.isOpened():
             self._dev.release()
-        
+
         if self._vr is not None:
             self._vr.release()
-        
-        if self._pbar is not None :
+
+        if self._pbar is not None:
             self._pbar.close()
 
     def update(self):
@@ -352,12 +373,13 @@ class HighResRec:
     def is_done(self):
         return self._done
 
+
 class Logs:
     def __init__(self):
         self._device = 4
         self._num_buffers = -2
 
-        self._sl = None 
+        self._sl = None
         self._hrr = None
 
         rospy.wait_for_service('get_num_agents')
@@ -368,31 +390,30 @@ class Logs:
             self._num_robots = resp.info.num_robots
             self._num_virtu_agents = resp.info.num_virtu_agents
         except rospy.ServiceException as e:
-            pass 
+            pass
 
         self._cfg_srv = Server(LoggerConfig, self._cfg_cb)
         rospy.Subscriber("num_agents_update", NumAgents, self._num_agents_cb)
 
     def _cfg_cb(self, config, level):
-        reset = False 
+        reset = False
 
         if self._device != config.device:
-            self._device = config.device 
-            reset = True 
+            self._device = config.device
+            reset = True
 
         self._start_new_session = config.start_new_session
         if self._start_new_session:
-            reset = True 
-        
+            reset = True
+
         if self._start_new_session and (reset == False or self._num_buffers != config.num_buffers):
             self._num_buffers = config.num_buffers
-            reset = True 
+            reset = True
 
         if reset:
             self._reset()
 
         return config
-
 
     def update(self):
         if self._sl is not None:
@@ -413,8 +434,9 @@ class Logs:
             self._of = self._of.replace('~', home)
         now = datetime.now()
         date_time = now.strftime("%m_%d_%Y-%H_%M_%S")
-        
-        self._of = '{}/{}-{}_{}-{}-{}'.format(self._of, self._type, date_time, self._num_agents, self._num_robots, self._num_virtu_agents)
+
+        self._of = '{}/{}-{}_{}-{}-{}'.format(self._of, self._type, date_time,
+                                              self._num_agents, self._num_robots, self._num_virtu_agents)
         os.makedirs(self._of)
 
         if self._sl is not None:
@@ -424,7 +446,8 @@ class Logs:
             del self._hrr
             self._hrr = None
 
-        self._sl = SystemLogs(self._of, self._num_agents, self._num_robots, self._num_virtu_agents)
+        self._sl = SystemLogs(self._of, self._num_agents,
+                              self._num_robots, self._num_virtu_agents)
         self._hrr = HighResRec(self._of, self._device, self._num_buffers)
 
     def _num_agents_cb(self, msg):
@@ -432,6 +455,7 @@ class Logs:
         self._num_robots = msg.num_robots
         self._num_virtu_agents = msg.num_virtu_agents
         self._reset()
+
 
 def main():
     rospy.init_node('logger_node')
